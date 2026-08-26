@@ -1,8 +1,6 @@
-vkbottle
-python-dotenv
-gspread
-google-auth
-pandas
-oauth2client
-google-api-python-client
-flask>=2.0.0
+vkbottle==4.1.0
+pydantic==1.8.2
+gspread==5.12.0
+oauth2client==4.1.3
+python-dotenv==1.0.0
+flask==2.3.0

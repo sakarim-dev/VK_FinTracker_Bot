@@ -20,3 +20,6 @@ WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET', 'your_secret_key_here')
 
 # Временная зона
 TIMEZONE_OFFSET = 5
+
+"""Проверка webhook"""
+
