@@ -1,0 +1,8 @@
+vkbottle
+python-dotenv
+gspread
+google-auth
+pandas
+oauth2client
+google-api-python-client
+flask>=2.0.0
