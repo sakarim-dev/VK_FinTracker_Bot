@@ -4,7 +4,6 @@ __pycache__/
 *.pyc
 .idea/
 .vscode/
-test.py
-save.txt
 credentials.json
 .vkbottle
+*.log
