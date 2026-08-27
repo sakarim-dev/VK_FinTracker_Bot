@@ -1,6 +1,7 @@
 import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from logger import logger, log_sheets_action
 from config import TABLE_ID
 
 # Настройка доступа к Google Sheets
@@ -54,13 +55,18 @@ def get_subcategories(category_name):
 
 def add_record(date, time, amount, category, subcategory, vk_id, record_type, description):
     """Добавляет запись в таблицу Исходник"""
-    all_data = sheet_source.get_all_values()
-    next_row = len(all_data) + 1
-    sheet_source.update(
-        range_name=f'A{next_row}:H{next_row}',
-        values=[[date, time, amount, category, subcategory, vk_id, record_type, description]]
-    )
-    return True
+    try:
+        all_data = sheet_source.get_all_values()
+        next_row = len(all_data) + 1
+        sheet_source.update(
+            range_name=f'A{next_row}:H{next_row}',
+            values=[[date, time, amount, category, subcategory, vk_id, record_type, description]]
+        )
+        log_sheets_action("add_record", f"{record_type}: {amount} ({category})")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка записи в Sheets: {e}")
+        raise
 
 
 def get_last_user_record(vk_id):

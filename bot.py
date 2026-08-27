@@ -3,6 +3,8 @@ from vkbottle.bot import Bot
 from vkbottle.tools import CtxStorage
 from config import VK_TOKEN
 from middleware.access import check_access
+from logger import logger, log_command, log_error, log_user_action
+import logging
 from handlers import (
     register_start_handlers,
     register_income_handlers,
@@ -11,6 +13,8 @@ from handlers import (
     register_delete_handlers,
     register_reports_handlers,
 )
+
+logging.basicConfig(level=logging.DEBUG)
 
 # Создаём бота
 bot = Bot(token=VK_TOKEN)
