@@ -50,4 +50,9 @@ def register_delete_handlers(bot: Bot):
             await message.answer("Запись удалена.", keyboard=keyboard_main.get_json())
         except Exception as e:
             await message.answer(f"Ошибка: {e}", keyboard=keyboard_main.get_json())
-            
+
+    @bot.on.private_message(text=["Нет"])
+    async def cancel_delete_handler(message: Message):
+        user_id = message.from_id
+        ctx_storage.delete(user_id)
+        await message.answer("Удаление отменено.", keyboard=keyboard_main.get_json())
