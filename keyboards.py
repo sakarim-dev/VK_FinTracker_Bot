@@ -8,7 +8,7 @@ from vkbottle import Keyboard, KeyboardButtonColor, Callback, Text
 
 
 def _callback_keyboard(buttons, columns=2):
-    keyboard = Keyboard(inline=True, one_time=True)
+    keyboard = Keyboard(inline=True)
     for index, (label, action, color) in enumerate(buttons, 1):
         keyboard.add(Callback(label, payload={"action": action}), color=color)
         if index % columns == 0 and index != len(buttons):
@@ -18,7 +18,7 @@ def _callback_keyboard(buttons, columns=2):
 
 # Единственная обычная текстовая клавиатура.
 keyboard_main = (
-    Keyboard(one_time=False, inline=False)
+    Keyboard(inline=False)
     .add(Text("Добавить расход"))
     .add(Text("Добавить доход"))
     .row()
