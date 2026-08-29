@@ -109,6 +109,24 @@ def register_transaction_handlers(bot: Bot):
     async def add_expense(message: Message):
         await start_transaction(message, "Расход")
 
+    @bot.on.private_message()
+    async def category_text_handler(message: Message):
+        """Обрабатывает выбор категории с обычной текстовой клавиатуры."""
+        state = ctx_storage.get(message.from_id)
+        if not state or state.get("step") != "category":
+            return
+
+        category = (message.text or "").strip()
+        keyboard = await handle_category(message.from_id, category)
+        if keyboard is None:
+            return
+
+        state = ctx_storage.get(message.from_id) or {}
+        if state.get("step") == "amount":
+            await message.answer("Категория выбрана. Введите сумму:", keyboard=keyboard)
+        else:
+            await message.answer("Категория выбрана. Выберите подкатегорию:", keyboard=keyboard)
+
 
 async def handle_category(user_id: int, category: str):
     state = ctx_storage.get(user_id)
@@ -119,9 +137,26 @@ async def handle_category(user_id: int, category: str):
     if category not in get_categories_by_type(record_type):
         return None
 
-    state.update(category=category, step="subcategory")
+    subcategories = get_subcategories(category)
+
+    # Категорию сохраняем ДО проверки количества подкатегорий.
+    # Иначе при единственной подкатегории process_text_input() не получает
+    # state["category"] и падает с KeyError.
+    state["category"] = category
+
+    # Если подкатегория одна (или отсутствует), отдельный экран выбора
+    # бессмысленен — выбираем её автоматически и сразу просим сумму.
+    if len(subcategories) <= 1:
+        state["subcategory"] = subcategories[0] if subcategories else ""
+        state["subcategory_auto"] = True
+        state["step"] = "amount"
+        ctx_storage.set(user_id, state)
+        return get_amount_keyboard().get_json()
+
+    state["subcategory_auto"] = False
+    state["step"] = "subcategory"
     ctx_storage.set(user_id, state)
-    return get_subcategory_keyboard(get_subcategories(category)).get_json()
+    return get_subcategory_keyboard(subcategories).get_json()
 
 
 async def handle_subcategory(user_id: int, subcategory: str | None):

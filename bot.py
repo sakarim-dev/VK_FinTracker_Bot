@@ -25,7 +25,7 @@ from keyboards import (
     keyboard_main,
     get_category_keyboard,
     get_subcategory_keyboard,
-    get_text_step_keyboard,
+    get_amount_keyboard,
 )
 from state import ctx_storage
 from logger import logger, log_error
@@ -60,18 +60,6 @@ async def callback_handler(event: MessageEvent):
     action = payload.get("action", "")
 
     try:
-        if action.startswith("category:"):
-            category = action.split(":", 1)[1]
-            keyboard = await handle_category(user_id, category)
-            if keyboard is None:
-                await event.show_snackbar("Категория недоступна")
-                return
-            await event.edit_message(
-                "Категория выбрана. Выберите подкатегорию:",
-                keyboard=keyboard,
-            )
-            return
-
         if action.startswith("subcategory:"):
             subcategory = action.split(":", 1)[1]
             keyboard = await handle_subcategory(user_id, subcategory)
@@ -122,9 +110,24 @@ async def callback_handler(event: MessageEvent):
                 ctx_storage.set(user_id, state)
                 await event.edit_message("Выберите категорию:", keyboard=get_category_keyboard(get_categories_by_type(record_type)).get_json())
             elif step == "amount":
-                state["step"] = "subcategory"
-                ctx_storage.set(user_id, state)
-                await event.edit_message("Выберите подкатегорию:", keyboard=get_subcategory_keyboard(get_subcategories(state["category"])).get_json())
+                # Если подкатегория была выбрана автоматически, возвращаемся
+                # сразу к выбору категории, не показывая лишний экран.
+                if state.get("subcategory_auto"):
+                    state["step"] = "category"
+                    state.pop("subcategory", None)
+                    state.pop("subcategory_auto", None)
+                    ctx_storage.set(user_id, state)
+                    await event.edit_message(
+                        "Выберите категорию:",
+                        keyboard=get_category_keyboard(get_categories_by_type(record_type)).get_json(),
+                    )
+                else:
+                    state["step"] = "subcategory"
+                    ctx_storage.set(user_id, state)
+                    await event.edit_message(
+                        "Выберите подкатегорию:",
+                        keyboard=get_subcategory_keyboard(get_subcategories(state["category"])).get_json(),
+                    )
             elif step == "description":
                 state["step"] = "amount"
                 ctx_storage.set(user_id, state)

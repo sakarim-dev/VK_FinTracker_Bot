@@ -18,7 +18,7 @@ def _callback_keyboard(buttons, columns=2):
 
 # Единственная обычная текстовая клавиатура.
 keyboard_main = (
-    Keyboard(inline=False)
+    Keyboard(one_time=False, inline=False)
     .add(Text("Добавить расход"))
     .add(Text("Добавить доход"))
     .row()
@@ -27,10 +27,19 @@ keyboard_main = (
 
 
 def get_category_keyboard(categories):
-    return _callback_keyboard([
-        (category, f"category:{category}", KeyboardButtonColor.PRIMARY)
-        for category in categories
-    ])
+    """Обычная текстовая клавиатура выбора категории.
+
+    Категории намеренно не являются callback-кнопками: их выбор обрабатывается
+    обычным private_message handler, как и кнопки главного меню.
+    """
+    keyboard = Keyboard(one_time=False, inline=False)
+
+    for index, category in enumerate(categories, 1):
+        keyboard.add(Text(category), color=KeyboardButtonColor.PRIMARY)
+        if index % 2 == 0 and index != len(categories):
+            keyboard.row()
+
+    return keyboard
 
 
 def get_subcategory_keyboard(subcategories):

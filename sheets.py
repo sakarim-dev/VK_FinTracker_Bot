@@ -47,38 +47,69 @@ def add_record(date, time, amount, category, subcategory, vk_id, record_type, de
 
 
 def get_last_user_record(vk_id, max_age_hours=1):
-    """Находит последнюю запись пользователя и реальный номер строки Sheets.
+    """Находит последнюю запись пользователя, ориентируясь только на столбец A.
 
-    Исправление критической ошибки исходника: таблица хранит ID в колонке
-    «ID», а старый код искал колонку «Кто добавил», поэтому запись не находилась.
-    Поддерживается и старое имя «Кто добавил» для совместимости.
+    Вспомогательные списки/валидации в B:H могут быть протянуты далеко вниз.
+    Поэтому последняя строка определяется не размером листа и не содержимым
+    других столбцов, а последней ячейкой A, содержащей корректную дату записи.
     """
     from utils import get_now
 
     try:
-        records = sheet_source.get_all_records()
-        if not records:
+        col_a = sheet_source.col_values(1)
+
+        # Ищем последнюю строку именно с датой в A.
+        # Пустые A ниже неё полностью игнорируются, даже если B:H заполнены.
+        last_row = 1
+        for row_num in range(len(col_a), 1, -1):
+            value = str(col_a[row_num - 1]).strip()
+            if not value:
+                continue
+            try:
+                datetime.datetime.strptime(value, "%d.%m.%Y")
+                last_row = row_num
+                break
+            except ValueError:
+                # Не считаем мусор/заголовок реальной финансовой записью.
+                continue
+
+        if last_row < 2:
+            return None, None
+
+        values = sheet_source.get(f"A2:H{last_row}")
+        if not values:
             return None, None
 
         now = get_now()
-        for index in range(len(records) - 1, -1, -1):
-            row = records[index]
-            owner = row.get("ID", row.get("Кто добавил", ""))
-            if str(owner) != str(vk_id):
+
+        for row_num in range(last_row, 1, -1):
+            row_values = values[row_num - 2] if row_num - 2 < len(values) else []
+            row = dict(zip(
+                HEADERS,
+                row_values + [""] * max(0, len(HEADERS) - len(row_values))
+            ))
+
+            if str(row.get("ID", "")).strip() != str(vk_id).strip():
                 continue
 
             try:
-                record_date = datetime.datetime.strptime(str(row.get("Дата", "")), "%d.%m.%Y").date()
-                record_time = datetime.datetime.strptime(str(row.get("Время", "")), "%H:%M").time()
-                record_dt = datetime.datetime.combine(record_date, record_time)
+                record_date = datetime.datetime.strptime(
+                    str(row.get("Дата", "")).strip(), "%d.%m.%Y"
+                ).date()
+                record_time = datetime.datetime.strptime(
+                    str(row.get("Время", "")).strip(), "%H:%M"
+                ).time()
             except (TypeError, ValueError):
-                logger.warning("Пропущена запись с некорректной датой/временем: %s", row)
                 continue
 
-            if datetime.timedelta(0) <= now - record_dt <= datetime.timedelta(hours=max_age_hours):
-                # get_all_records() начинается со строки 2.
-                return index + 2, row
+            record_dt = datetime.datetime.combine(record_date, record_time)
+            age = now - record_dt
+
+            if datetime.timedelta(0) <= age <= datetime.timedelta(hours=max_age_hours):
+                return row_num, row
+
         return None, None
+
     except Exception:
         logger.exception("Ошибка поиска последней записи пользователя %s", vk_id)
         return None, None
