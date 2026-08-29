@@ -2,7 +2,7 @@ from vkbottle.bot import Message, Bot
 from vkbottle.tools import CtxStorage
 from sheets import get_categories_by_type, get_subcategories, add_record
 from keyboards import get_category_keyboard, get_subcategory_keyboard, get_cancel_keyboard, keyboard_main
-from utils import get_date_str, get_time_str
+from utils import get_date_str, get_time_str, get_date_for_sheets
 
 ctx_storage = CtxStorage()
 
@@ -25,41 +25,6 @@ def register_expense_handlers(bot: Bot):
             "Выберите категорию расхода:",
             keyboard=get_category_keyboard(categories).get_json()
         )
-
-    @bot.on.private_message(text=["Назад"])
-    async def back_handler(message: Message):
-        user_id = message.from_id
-        state = ctx_storage.get(user_id)
-
-        if not state:
-            await message.answer("Главное меню:", keyboard=keyboard_main.get_json())
-            return
-
-        step = state.get('step', '')
-
-        if step == 'expense_category' or step == 'income_category':
-            ctx_storage.delete(user_id)
-            await message.answer("Главное меню:", keyboard=keyboard_main.get_json())
-
-        elif step == 'expense_subcategory' or step == 'income_subcategory':
-            # Возврат к выбору категории
-            state['step'] = 'expense_category' if 'Расход' in state.get('type', '') else 'income_category'
-            categories = get_categories_by_type(state.get('type', 'Расход'))
-            ctx_storage.set(user_id, state)
-            await message.answer(
-                "Выберите категорию:",
-                keyboard=get_category_keyboard(categories).get_json()
-            )
-
-        elif step == 'expense_amount' or step == 'income_amount':
-            # Возврат к выбору подкатегории
-            state['step'] = 'expense_subcategory' if 'Расход' in state.get('type', '') else 'income_subcategory'
-            subcategories = get_subcategories(state.get('category', ''))
-            ctx_storage.set(user_id, state)
-            await message.answer(
-                "Выберите подкатегорию или пропустите:",
-                keyboard=get_subcategory_keyboard(subcategories).get_json()
-            )
 
     @bot.on.private_message(text=["Отмена"])
     async def cancel_handler(message: Message):
@@ -132,7 +97,7 @@ def register_expense_handlers(bot: Bot):
                     keyboard=get_cancel_keyboard().get_json()
                 )
             except ValueError:
-                await message.answer("Пожалуйста, введите число (например: 500 или 500.50)")
+                await message.answer("Пожалуйста, введите число (например: 500 или 500,50)")
 
         # Ввод описания
         elif step == 'expense_description':

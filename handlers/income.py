@@ -2,7 +2,7 @@ from vkbottle.bot import Message, Bot
 from vkbottle.tools import CtxStorage
 from sheets import get_categories_by_type, get_subcategories, add_record
 from keyboards import get_category_keyboard, get_subcategory_keyboard, get_cancel_keyboard, keyboard_main
-from utils import get_date_str, get_time_str
+from utils import get_date_str, get_time_str, get_date_for_sheets
 
 ctx_storage = CtxStorage()
 
@@ -91,7 +91,7 @@ def register_income_handlers(bot: Bot):
                     keyboard=get_cancel_keyboard().get_json()
                 )
             except ValueError:
-                await message.answer("Пожалуйста, введите число (например: 500 или 500.50)")
+                await message.answer("Пожалуйста, введите число (например: 500 или 500,50)")
 
         # Ввод описания
         elif step == 'income_description':

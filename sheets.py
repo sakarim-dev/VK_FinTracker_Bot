@@ -20,11 +20,6 @@ sheet_source = spreadsheet.worksheet('Исходник')
 
 
 def add_record(date, time, amount, category, subcategory, vk_id, record_type, description):
-    """
-    Добавляет запись в таблицу Исходник
-
-    Единственное место, где происходит обращение к Google Sheets
-    """
     try:
         # 1. Проверяем наличие заголовков
         all_data = sheet_source.get_all_values()

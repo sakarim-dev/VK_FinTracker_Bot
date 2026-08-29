@@ -11,6 +11,11 @@ def get_date_str():
     return get_now().strftime('%d.%m.%Y')
 
 
+def get_date_for_sheets():
+    """Возвращает дату как объект datetime для Google Sheets"""
+    return get_now().date()
+
+
 def get_time_str():
     return get_now().strftime('%H:%M')
 
