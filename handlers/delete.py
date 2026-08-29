@@ -1,58 +1,58 @@
-from vkbottle.bot import Message, Bot
-from vkbottle.tools import CtxStorage
-from sheets import get_last_user_record, delete_record
+"""Удаление последней записи пользователя."""
+from vkbottle.bot import Bot, Message
 from keyboards import keyboard_main, get_delete_keyboard
-
-ctx_storage = CtxStorage()
+from state import ctx_storage
+from sheets import get_last_user_record, delete_record
+from utils import format_amount
+from logger import log_user_action, log_error
 
 
 def register_delete_handlers(bot: Bot):
-    @bot.on.private_message(text=["Удалить последнюю запись"])
+    @bot.on.private_message(text="Удалить последнюю запись")
     async def delete_last_handler(message: Message):
         user_id = message.from_id
         row_num, record = get_last_user_record(user_id)
-
-        if not row_num:
+        if row_num is None:
             await message.answer(
-                "Нет записей для удаления (или запись старше часа).",
-                keyboard=keyboard_main.get_json()
+                "Нет записи пользователя за последний час.",
+                keyboard=keyboard_main.get_json(),
             )
             return
 
-        record_type = record.get('Тип', 'неизвестно')
-        amount = record.get('Сумма', 0)
-        category = record.get('Категория', 'без категории')
-        description = record.get('Описание', 'без описания')
+        ctx_storage.set(user_id, {"step": "delete_confirm", "delete_row": row_num})
+        amount = record.get("Сумма", 0)
+        try:
+            amount_text = format_amount(float(amount))
+        except (TypeError, ValueError):
+            amount_text = str(amount)
 
         await message.answer(
-            f"Найдена последняя запись:\n"
-            f"Тип: {record_type}\n"
-            f"Сумма: {amount:,.2f} руб.\n"
-            f"Категория: {category}\n"
-            f"Описание: {description}\n\n"
-            f"Удалить?",
-            keyboard=get_delete_keyboard().get_json()
+            "Найдена последняя запись:\n"
+            f"Тип: {record.get('Тип', 'неизвестно')}\n"
+            f"Сумма: {amount_text}\n"
+            f"Категория: {record.get('Категория', 'без категории')}\n"
+            f"Описание: {record.get('Описание') or 'без описания'}\n\n"
+            "Удалить?",
+            keyboard=get_delete_keyboard().get_json(),
         )
-        ctx_storage.set(user_id, {'delete_row': row_num})
 
-    @bot.on.private_message(text=["Да, удалить"])
-    async def confirm_delete_handler(message: Message):
-        user_id = message.from_id
-        state = ctx_storage.get(user_id)
 
-        if not state or 'delete_row' not in state:
-            await message.answer("Нет записи для удаления.", keyboard=keyboard_main.get_json())
-            return
-
-        try:
-            delete_record(state['delete_row'])
-            ctx_storage.delete(user_id)
-            await message.answer("Запись удалена.", keyboard=keyboard_main.get_json())
-        except Exception as e:
-            await message.answer(f"Ошибка: {e}", keyboard=keyboard_main.get_json())
-
-    @bot.on.private_message(text=["Нет"])
-    async def cancel_delete_handler(message: Message):
-        user_id = message.from_id
+async def confirm_delete(user_id: int):
+    state = ctx_storage.get(user_id)
+    if not state or state.get("step") != "delete_confirm":
+        return False, "Нет активного удаления."
+    try:
+        delete_record(int(state["delete_row"]))
         ctx_storage.delete(user_id)
-        await message.answer("Удаление отменено.", keyboard=keyboard_main.get_json())
+        log_user_action(user_id, "delete_record", f"row={state['delete_row']}")
+        return True, "Запись удалена."
+    except Exception as error:
+        log_error(error, f"Удаление строки {state.get('delete_row')}")
+        return False, "Не удалось удалить запись."
+
+
+async def cancel_delete(user_id: int):
+    state = ctx_storage.get(user_id)
+    if state and state.get("step") == "delete_confirm":
+        ctx_storage.delete(user_id)
+    return "Удаление отменено."

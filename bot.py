@@ -1,65 +1,168 @@
 #!/usr/bin/env python3
-from vkbottle.bot import Bot
-from vkbottle.tools import CtxStorage
-from vkbottle.user import Message
+"""Точка входа VK Finance Tracker.
 
-from config import VK_TOKEN
-import logging
+Активные функции: старт, доходы, расходы, удаление.
+Статистика и отчёты отключены на уровне регистрации обработчиков,
+но их будущая интеграция не требует изменения ядра.
+"""
+import json
+
+from vkbottle import Bot, GroupEventType
+from vkbottle.bot import MessageEvent
+from vkbottle.bot import Message
+
+from config import VK_TOKEN, ALLOWED_USERS
 from handlers import (
     register_start_handlers,
-    register_income_handlers,
-    register_expense_handlers,
-    register_stats_handlers,
+    register_transaction_handlers,
     register_delete_handlers,
-    register_reports_handlers,
     register_navigation_handlers,
 )
-from keyboards import keyboard_main
+from handlers.transaction import handle_category, handle_subcategory, handle_skip, process_text_input
+from categories import get_categories_by_type, get_subcategories
+from handlers.delete import confirm_delete, cancel_delete
+from keyboards import (
+    keyboard_main,
+    get_category_keyboard,
+    get_subcategory_keyboard,
+    get_text_step_keyboard,
+)
+from state import ctx_storage
+from logger import logger, log_error
 
-logging.basicConfig(level=logging.DEBUG)
-
-# Создаём бота
 bot = Bot(token=VK_TOKEN)
-ctx_storage = CtxStorage()
 
-
-# Регистрируем все обработчики
 register_start_handlers(bot)
-register_expense_handlers(bot)
-register_income_handlers(bot)
-register_navigation_handlers(bot)
-register_stats_handlers(bot)
+register_transaction_handlers(bot)
 register_delete_handlers(bot)
-register_reports_handlers(bot)
+register_navigation_handlers(bot)
 
 
-# Общий обработчик для всего остального
-@bot.on.private_message()
-async def default_handler(message: Message):
-    user_id = message.from_id
-    state = ctx_storage.get(user_id)
+async def _allowed(user_id: int) -> bool:
+    return not ALLOWED_USERS or user_id in ALLOWED_USERS
 
-    # Если есть состояние, проверяем шаги
-    if state:
-        step = state.get('step', '')
-        # Если шаг содержит 'amount' или 'description', обрабатываем ввод
-        if step.endswith('amount') or step.endswith('description'):
-            # Здесь логика из обработчиков expense/income
-            pass
+
+@bot.on.raw_event(GroupEventType.MESSAGE_EVENT, dataclass=MessageEvent)
+async def callback_handler(event: MessageEvent):
+    """Единая точка обработки всех callback-кнопок."""
+    user_id = event.user_id
+    if not await _allowed(user_id):
+        await event.show_snackbar("Доступ запрещен")
         return
 
-    # Иначе отправляем главное меню
-    await message.answer(
-        "Используйте кнопки меню:",
-        keyboard=keyboard_main.get_json()
-    )
+    payload = event.payload
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            payload = {"action": payload}
+    payload = payload or {}
+    action = payload.get("action", "")
+
+    try:
+        if action.startswith("category:"):
+            category = action.split(":", 1)[1]
+            keyboard = await handle_category(user_id, category)
+            if keyboard is None:
+                await event.show_snackbar("Категория недоступна")
+                return
+            await event.edit_message(
+                "Категория выбрана. Выберите подкатегорию:",
+                keyboard=keyboard,
+            )
+            return
+
+        if action.startswith("subcategory:"):
+            subcategory = action.split(":", 1)[1]
+            keyboard = await handle_subcategory(user_id, subcategory)
+            if keyboard is None:
+                await event.show_snackbar("Подкатегория недоступна")
+                return
+            await event.edit_message("Подкатегория выбрана. Введите сумму:", keyboard=keyboard)
+            return
+
+        if action == "skip":
+            result = await handle_skip(user_id)
+            if result is None:
+                await event.show_snackbar("Сейчас пропуск недоступен")
+                return
+            message, keyboard = result
+            if message == "__SAVE__":
+                # Callback не является Message, поэтому сохраняем запись через
+                # синтетический объект только для общей функции не используем.
+                from sheets import add_record
+                from utils import get_date_str, get_time_str, format_amount
+                state = ctx_storage.get(user_id)
+                add_record(
+                    date=get_date_str(), time=get_time_str(), amount=state["amount"],
+                    category=state["category"], subcategory=state.get("subcategory", ""),
+                    vk_id=user_id, record_type=state["type"], description="",
+                )
+                amount = state["amount"]
+                record_type = state["type"]
+                category = state["category"]
+                ctx_storage.delete(user_id)
+                await event.edit_message(
+                    f"Запись добавлена.\nТип: {record_type}\nСумма: {format_amount(amount)}\nКатегория: {category}",
+                    keyboard=keyboard_main.get_json(),
+                )
+            else:
+                await event.edit_message(message, keyboard=keyboard)
+            return
+
+        if action == "back":
+            state = ctx_storage.get(user_id)
+            if not state:
+                await event.edit_message("Главное меню:", keyboard=keyboard_main.get_json())
+                return
+            step = state.get("step")
+            record_type = state.get("type")
+            if step == "subcategory":
+                state["step"] = "category"
+                ctx_storage.set(user_id, state)
+                await event.edit_message("Выберите категорию:", keyboard=get_category_keyboard(get_categories_by_type(record_type)).get_json())
+            elif step == "amount":
+                state["step"] = "subcategory"
+                ctx_storage.set(user_id, state)
+                await event.edit_message("Выберите подкатегорию:", keyboard=get_subcategory_keyboard(get_subcategories(state["category"])).get_json())
+            elif step == "description":
+                state["step"] = "amount"
+                ctx_storage.set(user_id, state)
+                await event.edit_message("Введите сумму:", keyboard=get_amount_keyboard().get_json())
+            else:
+                ctx_storage.delete(user_id)
+                await event.edit_message("Главное меню:", keyboard=keyboard_main.get_json())
+            return
+
+        if action == "cancel":
+            ctx_storage.delete(user_id)
+            await event.edit_message("Операция отменена.", keyboard=keyboard_main.get_json())
+            return
+
+        if action == "delete_confirm":
+            ok, text = await confirm_delete(user_id)
+            await event.edit_message(text, keyboard=keyboard_main.get_json())
+            return
+
+        if action == "delete_cancel":
+            text = await cancel_delete(user_id)
+            await event.edit_message(text, keyboard=keyboard_main.get_json())
+            return
+
+        await event.show_snackbar("Неизвестное действие")
+    except Exception as error:
+        log_error(error, f"callback action={action}, user={user_id}")
+        await event.show_snackbar("Произошла ошибка")
 
 
-# Запуск
+@bot.on.private_message()
+async def fallback_handler(message: Message):
+    """Не вмешивается в активный FSM; только показывает главное меню."""
+    if await process_text_input(message):
+        return
+    await message.answer("Используйте кнопки меню:", keyboard=keyboard_main.get_json())
+
+
 if __name__ == "__main__":
-    print("=" * 50)
-    print("БОТ ЗАПУЩЕН")
-    print("=" * 50)
-    print(f"Google Sheets: подключено")
-    print("=" * 50 + "\n")
+    logger.info("VK Finance Tracker запущен")
     bot.run()
