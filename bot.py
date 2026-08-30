@@ -11,7 +11,7 @@ from vkbottle import Bot, GroupEventType
 from vkbottle.bot import MessageEvent
 from vkbottle.bot import Message
 
-from config import VK_TOKEN, ALLOWED_USERS
+from config import VK_TOKEN, ALLOWED_USERS, USER_NAMES
 from handlers import (
     register_start_handlers,
     register_transaction_handlers,
@@ -19,7 +19,7 @@ from handlers import (
     register_navigation_handlers,
 )
 from handlers.transaction import handle_category, handle_subcategory, handle_skip, process_text_input
-from categories import get_categories_by_type, get_subcategories
+from categories import get_categories_by_type, get_subcategories  # noqa: F401 (используется в callback_handler)
 from handlers.delete import confirm_delete, cancel_delete
 from keyboards import (
     keyboard_main,
@@ -46,6 +46,7 @@ async def _allowed(user_id: int) -> bool:
 async def callback_handler(event: MessageEvent):
     """Единая точка обработки всех callback-кнопок."""
     user_id = event.user_id
+    name = USER_NAMES.get(user_id, f"User_{user_id}")
     if not await _allowed(user_id):
         await event.show_snackbar("Доступ запрещен")
         return
@@ -76,16 +77,20 @@ async def callback_handler(event: MessageEvent):
                 return
             message, keyboard = result
             if message == "__SAVE__":
-                # Callback не является Message, поэтому сохраняем запись через
-                # синтетический объект только для общей функции не используем.
+                # Callback не является Message, поэтому сохраняем запись напрямую.
                 from sheets import add_record
                 from utils import get_date_str, get_time_str, format_amount
                 state = ctx_storage.get(user_id)
-                add_record(
-                    date=get_date_str(), time=get_time_str(), amount=state["amount"],
-                    category=state["category"], subcategory=state.get("subcategory", ""),
-                    vk_id=user_id, record_type=state["type"], description="",
-                )
+                try:
+                    add_record(
+                        date=get_date_str(), time=get_time_str(), amount=state["amount"],
+                        category=state["category"], subcategory=state.get("subcategory", ""),
+                        vk_id=name, record_type=state["type"], description="",
+                    )
+                except Exception as save_error:
+                    log_error(save_error, f"skip/__SAVE__, user={user_id}")
+                    await event.show_snackbar("Не удалось сохранить запись. Попробуйте ещё раз.")
+                    return
                 amount = state["amount"]
                 record_type = state["type"]
                 category = state["category"]
@@ -160,7 +165,9 @@ async def callback_handler(event: MessageEvent):
 
 @bot.on.private_message()
 async def fallback_handler(message: Message):
-    """Не вмешивается в активный FSM; только показывает главное меню."""
+    """Единый catch-all: обрабатывает FSM (категория/сумма/описание) и показывает меню."""
+    if not await _allowed(message.from_id):
+        return
     if await process_text_input(message):
         return
     await message.answer("Используйте кнопки меню:", keyboard=keyboard_main.get_json())

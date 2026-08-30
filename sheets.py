@@ -16,7 +16,7 @@ SCOPE = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
 ]
-HEADERS = ["Дата", "Время", "Сумма", "Категория", "Подкатегория", "ID", "Тип", "Описание"]
+HEADERS = ["Дата", "Время", "Сумма", "Категория", "Подкатегория", "Имя", "Тип", "Описание"]
 
 
 def _connect():
@@ -49,29 +49,31 @@ def add_record(date, time, amount, category, subcategory, vk_id, record_type, de
 def get_last_user_record(vk_id, max_age_hours=1):
     """Находит последнюю запись пользователя, ориентируясь только на столбец A.
 
-    Вспомогательные списки/валидации в B:H могут быть протянуты далеко вниз.
-    Поэтому последняя строка определяется не размером листа и не содержимым
-    других столбцов, а последней ячейкой A, содержащей корректную дату записи.
+    Последняя строка с данными определяется как первая строка, где ячейка A
+    пуста (не содержит значения). Форматирование, заливка и границы не влияют
+    на результат — проверяется исключительно наличие значения в ячейке.
+
+    col_values() отрезает пустые хвосты и не подходит, если ниже данных
+    есть отформатированные пустые строки. Поэтому используем get() на весь
+    столбец с явным указанием диапазона до максимальной строки листа.
     """
     from utils import get_now
 
     try:
-        col_a = sheet_source.col_values(1)
-
-        # Ищем последнюю строку именно с датой в A.
-        # Пустые A ниже неё полностью игнорируются, даже если B:H заполнены.
-        last_row = 1
-        for row_num in range(len(col_a), 1, -1):
-            value = str(col_a[row_num - 1]).strip()
+        rows_a = sheet_source.get(
+            "A1:A",
+            value_render_option="UNFORMATTED_VALUE",
+        )
+        last_row = 1  # индекс последней строки с данными (1-based)
+        for idx, cell in enumerate(rows_a[1:], start=2):  # пропускаем строку 1
+            value = str(cell[0]).strip() if cell else ""
             if not value:
-                continue
-            try:
-                datetime.datetime.strptime(value, "%d.%m.%Y")
-                last_row = row_num
+                # Первая пустая A — данные закончились на предыдущей строке
+                last_row = idx - 1
                 break
-            except ValueError:
-                # Не считаем мусор/заголовок реальной финансовой записью.
-                continue
+        else:
+            # Пустых строк не встретили — данные идут до конца полученного диапазона
+            last_row = len(rows_a)
 
         if last_row < 2:
             return None, None

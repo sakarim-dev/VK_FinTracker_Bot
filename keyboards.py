@@ -55,7 +55,12 @@ def get_subcategory_keyboard(subcategories):
 
 
 def get_amount_keyboard():
-    """Клавиатура для ввода суммы: пропуск суммы запрещён."""
+    """Клавиатура для ввода суммы.
+
+    Намеренно содержит только «Назад» и «Отмена» — пропуск суммы запрещён.
+    Клавиатура inline: пользователь видит поле ввода и понимает, что нужно
+    напечатать число (например: 500 или 500.50).
+    """
     return _callback_keyboard([
         ("Назад", "back", KeyboardButtonColor.SECONDARY),
         ("Отмена", "cancel", KeyboardButtonColor.NEGATIVE),

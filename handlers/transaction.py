@@ -4,7 +4,9 @@
 Теперь различается только тип операции, что уменьшает количество точек отказа.
 """
 from vkbottle.bot import Bot, Message
-from sheets import get_categories_by_type, get_subcategories, add_record
+from categories import get_categories_by_type, get_subcategories  # исправлено: был импорт из sheets
+from config import USER_NAMES
+from sheets import add_record
 from keyboards import (
     keyboard_main,
     get_category_keyboard,
@@ -32,14 +34,33 @@ async def start_transaction(message: Message, record_type: str):
 
 
 async def process_text_input(message: Message):
-    """Обрабатывает только свободный пользовательский ввод: сумма/описание."""
+    """Обрабатывает свободный пользовательский ввод: выбор категории, сумма, описание."""
     state = ctx_storage.get(message.from_id)
+    name = USER_NAMES.get(message.from_id, f"User_{message.from_id}")
     if not state:
         return False
 
     step = state.get("step")
     text = (message.text or "").strip()
     record_type = state.get("type")
+
+    # Шаг выбора категории через текстовую клавиатуру
+    if step == "category":
+        keyboard = await handle_category(message.from_id, text)
+        if keyboard is None:
+            # Невалидный текст — сообщаем и повторяем клавиатуру категорий
+            categories = get_categories_by_type(record_type)
+            await message.answer(
+                "Выберите категорию из списка:",
+                keyboard=get_category_keyboard(categories).get_json(),
+            )
+            return True
+        state = ctx_storage.get(message.from_id) or {}
+        if state.get("step") == "amount":
+            await message.answer("Категория выбрана. Введите сумму:", keyboard=keyboard)
+        else:
+            await message.answer("Категория выбрана. Выберите подкатегорию:", keyboard=keyboard)
+        return True
 
     if step == "amount":
         try:
@@ -70,7 +91,7 @@ async def process_text_input(message: Message):
                 amount=state["amount"],
                 category=state["category"],
                 subcategory=state.get("subcategory", ""),
-                vk_id=message.from_id,
+                vk_id=name,
                 record_type=record_type,
                 description=state.get("description", ""),
             )
@@ -109,23 +130,9 @@ def register_transaction_handlers(bot: Bot):
     async def add_expense(message: Message):
         await start_transaction(message, "Расход")
 
-    @bot.on.private_message()
-    async def category_text_handler(message: Message):
-        """Обрабатывает выбор категории с обычной текстовой клавиатуры."""
-        state = ctx_storage.get(message.from_id)
-        if not state or state.get("step") != "category":
-            return
-
-        category = (message.text or "").strip()
-        keyboard = await handle_category(message.from_id, category)
-        if keyboard is None:
-            return
-
-        state = ctx_storage.get(message.from_id) or {}
-        if state.get("step") == "amount":
-            await message.answer("Категория выбрана. Введите сумму:", keyboard=keyboard)
-        else:
-            await message.answer("Категория выбрана. Выберите подкатегорию:", keyboard=keyboard)
+    # Примечание: catch-all обработчик для категорий и свободного ввода (сумма/описание)
+    # намеренно вынесен в fallback_handler в bot.py через process_text_input(),
+    # чтобы избежать конфликта двух @bot.on.private_message() без фильтров.
 
 
 async def handle_category(user_id: int, category: str):
